@@ -1,0 +1,175 @@
+---
+title: "Male Female data analysis"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+
+Differential gene expression
+```{r}
+library(GenomicFeatures)
+library(tximport)
+library(DESeq2)
+library(EnhancedVolcano)
+library(pheatmap)
+```
+
+Making a custom txdb from the transcriptome.
+
+```{r}
+gtf <- "pathtogtf"
+txdb <- makeTxDbFromGFF(gtf)
+```
+
+Pre-filtering, making DESeq object
+```{r}
+gene.files <- list.files("fvsm/rsem/mtor", "*genes.results", full.names = T)
+gene.files
+sampleData <- data.frame("row.names" = c("F1", "F2", "F3", "M1", "M2", "M3"), "conditions" = c(rep("F", 3), rep("M", 3)))
+
+txi <- tximport(gene.files, type="rsem")
+head(txi$counts)
+
+# filter out short genes
+length(txi$length[txi$length < 10])
+txi$length[txi$length == 0] = 0.01
+dds_txi <- DESeqDataSetFromTximport(txi,
+                                colData = sampleData,
+                                design = ~conditions)
+
+dds_txi
+keep <- rowSums(counts(dds_txi)) >= 10
+dds <- dds_txi[keep,]
+
+
+# Differential gene expression analysis
+dds <- DESeq(dds)
+res <- results(dds, alpha = 0.05)
+
+res05 <- subset(res, padj < 0.05)
+res05 <- res05[!is.na(res05$padj), ]
+res05 <- res05[order(res05$padj),]
+```
+
+Plotting volcano plot with p-value cutoff and log fold change cutoff
+
+```{r, fig.height=8, fig.width=8}
+res.df <- as.data.frame(res)
+pCutoff = 0.05
+FCutoff = 1.0
+
+p = EnhancedVolcano(res.df, lab = NA, x = 'log2FoldChange', y = 'padj',
+                    xlab = bquote(~Log[2]~ 'fold change'), ylab = bquote(~-Log[10]~adjusted~italic(P)),
+                    pCutoff = pCutoff, FCcutoff = FCutoff, pointSize = 2.0, labSize = 2.0,
+                    title = "", subtitle = " ",
+                    caption = paste0('log2 FC cutoff: ', FCutoff, '; p-value cutoff: ', pCutoff, '\nTotal = ', nrow(res), ' variables'),
+                    legendLabels=c('non\nsignificant','log2 fold change','p-adjusted', 'log2 fold change\n& p-adjusted'),
+                    legendPosition = 'bottom', legendLabSize = 12, legendIconSize = 5.0)
+p
+```
+Plot heatmap of z scores of log-converted p-values of expression
+```{r}
+rld <-rlog(dds)
+rlog.matrix <- assay(rld)
+sig.matrix <- rlog.matrix[rownames(rlog.matrix) %in% rownames(res05), ]
+
+
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+
+# z scores
+z.matrix <- t(apply(sig.matrix, 1, cal_z_score))
+
+pheatmap(z.matrix, show_rownames = FALSE)
+
+```
+
+Filtering out adjacent genes and plotting expression between males and females
+```{r}
+library(dplyr)
+library(reshape2)
+library(tidyr)
+library(tibble)
+library(ggbreak)
+
+
+#8 upstream 8 downstream genes
+#import normalized gene counts as csv or R object from DESeq analysis
+lncrna_adjacent <- 
+c("LOC105285599", "LOC105285600", "LOC105285601", "LOC105285602","LOC105285603","LOC105285604","LOC105285605","LOC105285607", "LOC105285608", "LOC113561733", "LOC105283851", "LOC105283852", "LOC105283850", "LOC105283849", "LOC105283847",  "LOC105283846", "LOC105283844")
+normcounts_gene <- read.csv("fvsm/dge/F_M_normalized-genecounts.csv", header=TRUE, row.names = 1)
+normcounts_lncrna_adjacent$gene <- lncrna_adjacent
+res_lncrna_adjacent <- res.df[lncrna_adjacent,]
+write.csv(normcounts_lncrna_adjacent, "fvsm/mtor_output/F_M_normcounts_lncrna_adjacent.csv")
+
+normcounts_lncrna_adjacent$gene <- factor(normcounts_lncrna_adjacent$gene, levels = normcounts_lncrna_adjacent$gene)
+
+# Gather the data into long format for ggplot
+long_data <- normcounts_lncrna_adjacent %>%
+  gather(key = "Sample", value = "Expression", starts_with("F"), starts_with("M")) %>%
+  mutate(Sex = ifelse(grepl("F", Sample), "Female", "Male"),
+         Expression = ifelse(Expression == 0, 1, Expression)) # Replace 0s with a small value
+```
+
+
+```{r, fig.height=8, fig.width=8}
+plt <- ggplot(long_data, aes(x = reorder(gene, desc(gene)), y = Expression, fill = Sex)) + 
+  geom_point(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.8), 
+             size = 3, alpha = 0.7, shape = 21, color = "black", stroke = 0.8) + 
+  scale_y_continuous(trans = 'log10') + 
+  stat_summary(fun = mean, geom = "errorbar", aes(ymin = ..y.., ymax = ..y.., group = Sex), 
+               position = position_dodge(width = 0.8), width = 0.6, size = 1.2, color = "black") + 
+  stat_summary(fun.data = mean_se, geom = "errorbar", aes(group = Sex), 
+               position = position_dodge(width = 0.8), width = 0.25, size = 1.2, color = "black") + 
+  labs(title = "Gene Expression Proximal to CSD Locus", x = "Gene", y = "Normalized Counts") +
+  theme_bw(base_size = 15) +
+  scale_fill_manual(values = c("#E88CB6", "#8EBEE2")) + 
+  coord_flip()
+
+ggsave("plots/paper/expression.png")
+ggsave("plots/paper/expression.pdf")
+```
+
+Differential exon usage analysis
+```{r}
+library(DEXSeq)
+library(stageR)
+library(reshape2)
+
+# directory to the folder with outputs of the python preprocessing 
+inDir <- "dexseq/"
+countFiles <- list.files(inDir, pattern="fb.txt$", full.names=TRUE)
+
+flattenedFile = list.files(inDir, pattern=".gtf$", full.names=TRUE)
+
+sampleData <- data.frame(sample_id = c("F1", "F2", "F3", "M1", "M2", "M3"), 
+                         condition = c(rep("F", 3), rep("M", 3)))
+dxd <- DEXSeqDataSetFromHTSeq(
+   countFiles,
+   sampleData=sampleData,
+   design= ~ sample + exon + condition:exon,
+   flattenedfile=flattenedFile )
+```
+
+```{r}
+system.time({
+        dxd = estimateSizeFactors(dxd)
+        dxd = estimateDispersions(dxd)
+        dxd = testForDEU(dxd)
+        dxd = estimateExonFoldChanges(dxd, fitExpToVar="condition")
+
+})
+
+dxr = DEXSeqResults(dxd, independentFiltering = FALSE)
+
+#extrach p values of each exon
+qval = perGeneQValue(dxr)
+dxr.t = as.data.frame(dxr[, c("featureID","groupID","pvalue")])
+
+write.csv(as.data.frame(dxr.t), file="DEX_transcripts.csv")
+```
+
+
