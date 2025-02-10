@@ -8,9 +8,9 @@ Threads=45
 # Directory to store the STAR genome index
 STARGenomeDir=$1
 # Path to the genome fasta file
-GenomeAssemblyFASTA="GenBank_biroi_genome.fasta"
+GenomeAssemblyFASTA="/GenBank_biroi_genome.fasta"
 # Path to the GTF file
-GenomeAnnotationGTF="Refseq_With_Genbank_MT_And_ORs.gtf"
+GenomeAnnotationGTF="/obiroi.gtf"
 
 # Making sure the genome index directory exists
 mkdir -p $STARGenomeDir
