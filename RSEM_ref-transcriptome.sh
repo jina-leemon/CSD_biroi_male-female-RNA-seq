@@ -6,10 +6,9 @@
 RSEMGenomeDir=$1
 
 # Path to FASTA file
-GenomeAssemblyFASTA="/home/antqueen/booster/KDL20240123_STARprepForJina/data/Genome/GenBank_biroi_genome.fasta"
+GenomeAssemblyFASTA="/GenBank_biroi_genome.fasta"
 # Path to the GTF file
-#GenomeAnnotationGTF="/home/antqueen/booster/KDL20240123_STARprepForJina/data/Genome/RefSeq_With_GenBank_MT_And_ORs.gtf"
-GenomeAnnotationGTF="/home/antqueen/booster/JL20240124_FemaleMaleRNAseqDifferential/stringtie_m/Refseq_With_Genbank_MT_And_ORs_m_fin.gtf"
+GenomeAnnotationGTF="/obiro-gtf"
 
 rsem-prepare-reference \
     --gtf ${GenomeAnnotationGTF} ${GenomeAssemblyFASTA} ${RSEMGenomeDir}index
