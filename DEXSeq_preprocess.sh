@@ -4,10 +4,14 @@ printf "started: "
 date '+%Y-%m-%d %H:%M:%S'
 
 pathpython="dexseq/"
-inputgtf="Refseq_With_Genbank_MT_And_ORs_m_fin.gtf"
-dexseqgtf="RefSeq_With_GenBank_MT_And_ORs_m_dexseq.gtf"
+# reference gtf
+inputgtf="/gtflocation"
+# directory to the output gtf that dexseq makes
+dexseqgtf="/outputgtf"
+# location of bamfiles
 bamfiles="star_align/*Aligned.sortedByCoord.out.bam"
-suffix="novelm_mtor_r"
+# suffix for output htseq count reads
+suffix="/suffix-of-read"
 
 if [ ! -f $dexseqgtf ]; then
     python $pathpython"dexseq_prepare_annotation.py" $inputgtf $dexseqgtf
